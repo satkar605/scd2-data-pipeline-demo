@@ -1,47 +1,46 @@
--- Module 1 - Homework (Par 1: DDL)
--- DDL
--- SELECT * FROM actor_films;
+-- ===================================================================================
+-- Task 1: DDL for Core Actor Data Model (`actors` table and custom types)
+-- ===================================================================================
+-- This script defines the foundational Data Definition Language (DDL) for the `actors`
+-- table and its associated custom types. This table is a Type 1 SCD, designed to
+-- hold a single, current-state row per actor.
+--
+-- The script is idempotent; it safely drops and recreates types and tables to
+-- ensure a clean state upon every execution.
+-- ===================================================================================
 
--- ## Assignment Tasks
+-- Drop dependent objects first in reverse order of creation to avoid errors.
+DROP TABLE IF EXISTS actors;
+DROP TYPE IF EXISTS quality_class_e;
+DROP TYPE IF EXISTS films;
 
--- 1. **DDL for `actors` table:** Create a DDL for an `actors` table with the following fields:
---     - `films`: An array of `struct` with the following fields:
--- 		- film: The name of the film.
--- 		- votes: The number of votes the film received.
--- 		- rating: The rating of the film.
--- 		- filmid: A unique identifier for each film.
 
---     - `quality_class`: This field represents an actor's performance quality, determined by the average rating of movies of their most recent year. It's categorized as follows:
--- 		- `star`: Average rating > 8.
--- 		- `good`: Average rating > 7 and ≤ 8.
--- 		- `average`: Average rating > 6 and ≤ 7.
--- 		- `bad`: Average rating ≤ 6.
---     - `is_active`: A BOOLEAN field that indicates whether an actor is currently active in the film industry (i.e., making films this year).
+-- Create a custom composite type to represent a single film's data.
+-- This allows us to store an array of these structs in the `actors` table.
+CREATE TYPE films AS (
+    film TEXT,          -- Name of the film.
+    votes INTEGER,      -- Number of votes the film received.
+    rating REAL,        -- Film rating.
+    filmid TEXT         -- Unique identifier for the film.
+);
 
--- Creating a table 'actors' that has the following fields: 'films' (a struct) + 'quality_class' (enum) + 'is_active' (BOOL)
+-- Create a custom ENUM type to constrain the values of `quality_class`.
+-- This enforces data integrity by ensuring only these specific values can be used.
+CREATE TYPE quality_class_e AS ENUM (
+    'star',
+    'good',
+    'average',
+    'bad'
+);
 
--- Creating a custom composite type called 'films'
--- This type represents a STRUCT that groups film information together
--- CREATE TYPE films AS(
--- 				film TEXT,			-- Name of the film
--- 				votes INTEGER,		-- Number of votes the film received
--- 				rating REAL,		-- Film rating
--- 				filmid TEXT			-- Unique identifier for the film
--- )
-
-/* Creating an ENUM type for 'quality_class' */
--- This ENUM defines the allowed categories for actor performance based on average ratings:
--- CREATE TYPE quality_class_e AS ENUM('star', 'good', 'average', 'bad');
-
--- /* Creating the 'actors' table */
--- -- The table stors each actor, their films, and additional classification
-CREATE TABLE actors(
-	actorid TEXT PRIMARY KEY,			-- Unique indentifier
-	actor TEXT,							
-	films films[],		
-	quality_class quality_class_e,
-	is_active BOOLEAN
-)
+-- Create the main 'actors' table.
+CREATE TABLE actors (
+    actorid TEXT PRIMARY KEY,           -- Unique identifier for the actor, serving as the primary key.
+    actor TEXT,                         -- The actor's name.
+    films films[],                      -- An array of the custom 'films' type, storing the actor's filmography.
+    quality_class quality_class_e,      -- The actor's calculated quality class, constrained by the ENUM.
+    is_active BOOLEAN                   -- A flag indicating if the actor is currently active.
+);
 
 -- DROP TABLE IF EXISTS actors;
 

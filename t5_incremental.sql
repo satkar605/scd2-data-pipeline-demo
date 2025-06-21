@@ -5,16 +5,19 @@
 -- It is designed to be idempotent and respect the PRIMARY KEY constraint.
 --
 -- Logic:
--- 1. Use CTEs to stage the incoming 2022 data and compare it with the last known
---    versions from 2021 to determine what has changed, what is new, and
---    what has remained the same.
--- 2. Perform an UPDATE to extend the `end_year` of unchanged records. This is the
---    correct way to handle streaks that continue over time.
--- 3. Perform a single INSERT to add rows for truly new versions (from changed
---    actors) and brand new actors.
+-- 1. Create a temporary staging table to hold the analysis of what has changed.
+-- 2. Use CTEs to populate this staging table by comparing the 2021 state with the
+--    incoming 2022 data.
+-- 3. Perform an UPDATE on the main SCD table to extend the `end_year` of unchanged
+--    records, using the staging table to identify them.
+-- 4. Perform a single INSERT to add new version rows for changed and new actors,
+--    also using the staging table.
+-- 5. The temporary table is automatically dropped at the end of the session.
 -- ===================================================================================
 
--- Step 1: Stage the data and identify changes using Common Table Expressions (CTEs).
+-- Create a temporary table to stage the results of the change analysis.
+-- This solves the CTE scope issue and is more performant than re-running the CTEs.
+CREATE TEMP TABLE changes_staging AS
 WITH last_year_scd AS (
     -- Get the most recent (open-ended) version for each actor from the 2021 load.
     SELECT 
@@ -50,22 +53,20 @@ combined AS (
         ts.is_active
     FROM last_year_scd ls
     FULL OUTER JOIN this_year_data ts ON ls.actorid = ts.actorid
-),
--- Categorize each actor into 'new', 'changed', or 'unchanged'.
-changes AS (
-    SELECT
-        actorid,
-        actor,
-        quality_class,
-        is_active,
-        CASE
-            WHEN last_year_actorid IS NULL THEN 'new'
-            WHEN this_year_actorid IS NULL THEN 'retired' -- Not handled in this script, but good to identify
-            WHEN last_year_quality_class <> this_year_quality_class OR last_year_is_active <> this_year_is_active THEN 'changed'
-            ELSE 'unchanged'
-        END as change_type
-    FROM combined
 )
+-- Final categorization of each actor into 'new', 'changed', or 'unchanged'.
+SELECT
+    actorid,
+    actor,
+    quality_class,
+    is_active,
+    CASE
+        WHEN last_year_actorid IS NULL THEN 'new'
+        WHEN this_year_actorid IS NULL THEN 'retired' -- Not handled in this script, but good to identify
+        WHEN last_year_quality_class <> this_year_quality_class OR last_year_is_active <> this_year_is_active THEN 'changed'
+        ELSE 'unchanged'
+    END as change_type
+FROM combined;
 
 -- Step 2: Update the end_year for all records that have not changed.
 -- This "extends" their active streak into the new year.
@@ -73,7 +74,7 @@ UPDATE actors_history_scd
 SET 
     end_year = 2022,
     current_year = 2022
-WHERE actorid IN (SELECT actorid FROM changes WHERE change_type = 'unchanged')
+WHERE actorid IN (SELECT actorid FROM changes_staging WHERE change_type = 'unchanged')
   AND end_year = 2021;
 
 
@@ -96,5 +97,5 @@ SELECT
     2022 AS start_year,
     2022 AS end_year,
     2022 AS current_year
-FROM changes
+FROM changes_staging
 WHERE change_type IN ('new', 'changed');
